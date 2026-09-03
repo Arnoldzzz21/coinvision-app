@@ -75,6 +75,37 @@ CURRENCY_ALIASES = {
     "taiwan Dollar": "TWD",
 }
 
+# Many coin denominations in this dataset are written in a currency's named
+# minor subunit (e.g. "1 euro Cent" = 0.01 Euro, "1 Rappen" = 0.01 Swiss
+# Franc, "1 Jiao" = 0.10 Yuan) rather than its major unit. parse_denomination()
+# only reads the leading number, so without this table those coins would be
+# valued as if that number were whole units of the major currency (e.g.
+# "1 euro Cent" priced the same as "1 Euro"). Maps the subunit word
+# (lowercase, as it appears right after the number in cat_to_name.json,
+# singular/plural forms included) to its fraction of one major unit. Built
+# by checking every denomination word actually present in the 211 classes;
+# anything not listed here (Euro, Dollar, Peso, Krona, Forint, Yen, Won,
+# Rupiah, ...) is a major unit and keeps a fraction of 1.0.
+SUBUNIT_FRACTIONS = {
+    "cent": 0.01, "cents": 0.01,
+    "centavo": 0.01, "centavos": 0.01,
+    "pence": 0.01, "penny": 0.01,
+    "paise": 0.01,
+    "agorot": 0.01,
+    "sen": 0.01,
+    "sentimo": 0.01, "sentimos": 0.01,
+    "grosz": 0.01, "grosze": 0.01, "groszy": 0.01,
+    "kopek": 0.01, "kopeks": 0.01,
+    "ore": 0.01,
+    "hellers": 0.01,
+    "kurus": 0.01,
+    "satang": 0.01,
+    "rappen": 0.01,
+    "euro cent": 0.01,
+    "dime": 0.1,   # US dime = 1/10 dollar
+    "jiao": 0.1,   # Chinese jiao = 1/10 yuan
+}
+
 
 # ---------------------------
 # Model definition — same architecture as Phase 11 (HierarchicalCoinNet).
@@ -235,14 +266,73 @@ def parse_denomination(name):
         return None
 
 
+def subunit_fraction(denomination_str):
+    """Fraction of the currency's major unit that this denomination's word
+    represents: 1.0 for a major-unit coin (Euro, Dollar, Peso, ...), or the
+    looked-up fraction for a named subunit (Cent, Rappen, Hellers, Kurus,
+    ... — see SUBUNIT_FRACTIONS above)."""
+    name = denomination_str.strip()
+    # Same "strip the leading number" shape as parse_denomination, but keep
+    # the trailing word(s) instead of the number.
+    match = re.match(r"^[\d.,/\s]+(.*)$", name)
+    unit_word = (match.group(1) if match else name).strip().lower()
+    return SUBUNIT_FRACTIONS.get(unit_word, 1.0)
+
+
 def convert_to_usd(denomination_str, currency_name, rates):
     value = parse_denomination(denomination_str)
     iso_code = CURRENCY_ALIASES.get(currency_name)
     if value is None or iso_code is None or iso_code not in rates or "USD" not in rates:
         return None
-    value_in_eur = value / rates[iso_code]
+    value_in_major_unit = value * subunit_fraction(denomination_str)
+    value_in_eur = value_in_major_unit / rates[iso_code]
     value_in_usd = value_in_eur * rates["USD"]
     return value_in_usd
+
+
+def split_coin_name(full_name):
+    """Split a cat_to_name.json entry ('10 Kurus, Turkish Lira, turkey') into
+    (denomination, currency, country)."""
+    parts = [p.strip() for p in full_name.split(",")]
+    denomination = parts[0] if len(parts) > 0 else full_name
+    currency = parts[1] if len(parts) > 1 else ""
+    country = parts[2] if len(parts) > 2 else ""
+    return denomination, currency, country
+
+
+# ---------------------------
+# Coin value table — USD value of every one of the 211 known classes,
+# precomputed once so we can find coins of similar purchasing power to a
+# given prediction (used instead of showing the model's low-confidence
+# runner-up guesses, which were confusing: e.g. a 1 Euro prediction next to
+# "2 Zlote — 3.2%" reads as if the model is unsure between those, when
+# really it's just what a flat top-3 softmax happens to rank next).
+# ---------------------------
+def build_coin_value_table(cat_to_name_map, rates):
+    table = []
+    for class_id, full_name in cat_to_name_map.items():
+        denomination, currency, country = split_coin_name(full_name)
+        usd_value = convert_to_usd(denomination, currency, rates)
+        if usd_value is not None:
+            table.append({
+                "class_id": class_id,
+                "denomination": denomination,
+                "currency": currency,
+                "country": country,
+                "usd_value": usd_value,
+            })
+    return table
+
+
+def find_similar_value_coins(usd_value, exclude_class_id, value_table, n=2):
+    """Return the n known coins whose USD value is closest to usd_value,
+    excluding the predicted coin itself."""
+    candidates = [c for c in value_table if c["class_id"] != exclude_class_id]
+    candidates.sort(key=lambda c: abs(c["usd_value"] - usd_value))
+    return candidates[:n]
+
+
+coin_value_table = build_coin_value_table(cat_to_name, exchange_rates)
 
 
 # ---------------------------
@@ -259,7 +349,7 @@ def predict_coin(image, top_k=3):
     for prob, idx in zip(top_probs, top_idxs):
         class_id = str(idx_to_class[idx.item()])
         full_name = cat_to_name.get(class_id, class_id)
-        results.append((full_name, prob.item()))
+        results.append((class_id, full_name, prob.item()))
 
     pred_class = top_idxs[0].item()
     cam = grad_cam.generate(input_tensor, pred_class)
@@ -308,32 +398,31 @@ if uploaded_file is not None:
             "shown, since it would most likely be wrong."
         )
         with st.expander("Show closest matches anyway (low confidence)"):
-            for i, (name, prob) in enumerate(results):
-                parts = [p.strip() for p in name.split(",")]
-                denomination = parts[0] if len(parts) > 0 else name
-                currency = parts[1] if len(parts) > 1 else ""
-                country = parts[2] if len(parts) > 2 else ""
+            for i, (class_id, name, prob) in enumerate(results):
+                denomination, currency, country = split_coin_name(name)
                 st.write(f"{i + 1}. **{denomination}** — {currency} ({country}) — {prob:.1%}")
     else:
-        for i, (name, prob) in enumerate(results):
-            parts = [p.strip() for p in name.split(",")]
-            denomination = parts[0] if len(parts) > 0 else name
-            currency = parts[1] if len(parts) > 1 else ""
-            country = parts[2] if len(parts) > 2 else ""
+        class_id, name, prob = results[0]
+        denomination, currency, country = split_coin_name(name)
+        label = f"**{denomination}** — {currency} ({country})"
 
-            label = f"**{denomination}** — {currency} ({country})"
+        st.success(f"🥇 {label} — {prob:.1%} confidence")
 
-            if i == 0:
-                st.success(f"🥇 {label} — {prob:.1%} confidence")
-                usd_value = convert_to_usd(denomination, currency, exchange_rates)
-                if usd_value is not None:
-                    st.metric("Estimated value in USD", f"${usd_value:.4f}")
-                else:
-                    st.caption("USD conversion not available for this coin.")
-            else:
-                st.write(f"{i + 1}. {label} — {prob:.1%}")
+        usd_value = convert_to_usd(denomination, currency, exchange_rates)
+        if usd_value is not None:
+            st.metric("Estimated value in USD", f"${usd_value:.4f}")
+
+            similar_coins = find_similar_value_coins(usd_value, class_id, coin_value_table, n=2)
+            if similar_coins:
+                st.caption("Other known coins worth about the same:")
+                for coin in similar_coins:
+                    coin_label = f"**{coin['denomination']}** — {coin['currency']} ({coin['country']})"
+                    st.write(f"{coin_label} — ≈ ${coin['usd_value']:.4f}")
+        else:
+            st.caption("USD conversion not available for this coin.")
 else:
     st.info("Upload an image of a coin to get started.")
 
 st.divider()
-st.caption("Model: EfficientNet-B3 (multi-task, class_head + auxiliary group_head) · Test accuracy 68.13% across 211 classes · Data Science portfolio project.")
+st.caption("Model: EfficientNet-B3 (multi-task, class_head + auxiliary group_head) · Test accuracy 68.13% across 211 classes · Data Science portfolio project."
+)
