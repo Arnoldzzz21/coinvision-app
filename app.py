@@ -21,6 +21,15 @@ NUM_CLASSES = 211
 NUM_GROUPS = 32
 IMG_SIZE = 300
 MODEL_PATH = "models/best_model_hierarchical.pth"
+
+# The model is a closed-set classifier: it always picks one of the 211
+# known classes (32 countries), even for a coin it was never trained on
+# (e.g. an Argentine peso). When its own top-1 confidence is this low,
+# that's a sign the coin is probably out of its known scope rather than
+# a coin it actually recognizes with low certainty, so instead of
+# asserting a likely-wrong country/currency we show a clear "not
+# recognized" message. Tune this threshold based on real-world testing.
+LOW_CONFIDENCE_THRESHOLD = 0.35
 CAT_TO_NAME_PATH = "cat_to_name.json"
 LABEL_MAPPING_PATH = "label_mapping.json"
 EXCHANGE_RATES_PATH = "exchange_rates.csv"
@@ -268,45 +277,63 @@ def predict_coin(image, top_k=3):
 # ---------------------------
 st.title("🪙 CoinVision")
 st.caption(
-    "Identifies coins from 211 different classes with an EfficientNet-B3 model, "
-    "with explainability via Grad-CAM."
+    "Identifica monedas de 211 clases distintas con un modelo EfficientNet-B3, "
+    "con explainability vía Grad-CAM."
 )
 
-uploaded_file = st.file_uploader("Upload a photo of a coin", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Sube una foto de una moneda", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
 
     col1, col2 = st.columns(2)
     with col1:
-        st.image(image, caption="Uploaded image", use_container_width=True)
+        st.image(image, caption="Imagen subida", use_container_width=True)
 
-    with st.spinner("Analyzing coin..."):
+    with st.spinner("Analizando moneda..."):
         results, overlay = predict_coin(image)
 
     with col2:
-        st.image(overlay, caption="Grad-CAM: region used by the model", use_container_width=True)
+        st.image(overlay, caption="Grad-CAM: región usada por el modelo", use_container_width=True)
 
-    st.subheader("Predictions")
-    for i, (name, prob) in enumerate(results):
-        parts = [p.strip() for p in name.split(",")]
-        denomination = parts[0] if len(parts) > 0 else name
-        currency = parts[1] if len(parts) > 1 else ""
-        country = parts[2] if len(parts) > 2 else ""
+    st.subheader("Predicciones")
 
-        label = f"**{denomination}** — {currency} ({country})"
+    top1_prob = results[0][1]
 
-        if i == 0:
-            st.success(f"🥇 {label} — {prob:.1%} confidence")
-            usd_value = convert_to_usd(denomination, currency, exchange_rates)
-            if usd_value is not None:
-                st.metric("Estimated value in USD", f"${usd_value:.4f}")
+    if top1_prob < LOW_CONFIDENCE_THRESHOLD:
+        st.warning(
+            "⚠️ Coin not recognized with confidence. This may not be one of "
+            "the coins this model was trained on (it recognizes 211 "
+            "denominations from 32 countries). No country or USD value is "
+            "shown, since it would most likely be wrong."
+        )
+        with st.expander("Show closest matches anyway (low confidence)"):
+            for i, (name, prob) in enumerate(results):
+                parts = [p.strip() for p in name.split(",")]
+                denomination = parts[0] if len(parts) > 0 else name
+                currency = parts[1] if len(parts) > 1 else ""
+                country = parts[2] if len(parts) > 2 else ""
+                st.write(f"{i + 1}. **{denomination}** — {currency} ({country}) — {prob:.1%}")
+    else:
+        for i, (name, prob) in enumerate(results):
+            parts = [p.strip() for p in name.split(",")]
+            denomination = parts[0] if len(parts) > 0 else name
+            currency = parts[1] if len(parts) > 1 else ""
+            country = parts[2] if len(parts) > 2 else ""
+
+            label = f"**{denomination}** — {currency} ({country})"
+
+            if i == 0:
+                st.success(f"🥇 {label} — {prob:.1%} de confianza")
+                usd_value = convert_to_usd(denomination, currency, exchange_rates)
+                if usd_value is not None:
+                    st.metric("Valor estimado en USD", f"${usd_value:.4f}")
+                else:
+                    st.caption("Conversión a USD no disponible para esta moneda.")
             else:
-                st.caption("USD conversion not available for this coin.")
-        else:
-            st.write(f"{i + 1}. {label} — {prob:.1%}")
+                st.write(f"{i + 1}. {label} — {prob:.1%}")
 else:
-    st.info("Upload an image of a coin to get started.")
+    st.info("Sube una imagen de una moneda para comenzar.")
 
 st.divider()
-st.caption("Model: EfficientNet-B3 (multi-task, class_head + auxiliary group_head) · Test accuracy 68.13% on 211 classes · Data Science portfolio project.")
+st.caption("Modelo: EfficientNet-B3 (multi-task, class_head + group_head auxiliar) · Test accuracy 68.13% sobre 211 clases · Proyecto de portafolio de Data Science.")
