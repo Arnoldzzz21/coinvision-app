@@ -277,26 +277,26 @@ def predict_coin(image, top_k=3):
 # ---------------------------
 st.title("🪙 CoinVision")
 st.caption(
-    "Identifica monedas de 211 clases distintas con un modelo EfficientNet-B3, "
-    "con explainability vía Grad-CAM."
+    "Identifies coins from 211 different classes using an EfficientNet-B3 "
+    "model, with explainability via Grad-CAM."
 )
 
-uploaded_file = st.file_uploader("Sube una foto de una moneda", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload a photo of a coin", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
 
     col1, col2 = st.columns(2)
     with col1:
-        st.image(image, caption="Imagen subida", use_container_width=True)
+        st.image(image, caption="Uploaded image", use_container_width=True)
 
-    with st.spinner("Analizando moneda..."):
+    with st.spinner("Analyzing coin..."):
         results, overlay = predict_coin(image)
 
     with col2:
-        st.image(overlay, caption="Grad-CAM: región usada por el modelo", use_container_width=True)
+        st.image(overlay, caption="Grad-CAM: region used by the model", use_container_width=True)
 
-    st.subheader("Predicciones")
+    st.subheader("Predictions")
 
     top1_prob = results[0][1]
 
@@ -324,16 +324,16 @@ if uploaded_file is not None:
             label = f"**{denomination}** — {currency} ({country})"
 
             if i == 0:
-                st.success(f"🥇 {label} — {prob:.1%} de confianza")
+                st.success(f"🥇 {label} — {prob:.1%} confidence")
                 usd_value = convert_to_usd(denomination, currency, exchange_rates)
                 if usd_value is not None:
-                    st.metric("Valor estimado en USD", f"${usd_value:.4f}")
+                    st.metric("Estimated value in USD", f"${usd_value:.4f}")
                 else:
-                    st.caption("Conversión a USD no disponible para esta moneda.")
+                    st.caption("USD conversion not available for this coin.")
             else:
                 st.write(f"{i + 1}. {label} — {prob:.1%}")
 else:
-    st.info("Sube una imagen de una moneda para comenzar.")
+    st.info("Upload an image of a coin to get started.")
 
 st.divider()
-st.caption("Modelo: EfficientNet-B3 (multi-task, class_head + group_head auxiliar) · Test accuracy 68.13% sobre 211 clases · Proyecto de portafolio de Data Science.")
+st.caption("Model: EfficientNet-B3 (multi-task, class_head + auxiliary group_head) · Test accuracy 68.13% across 211 classes · Data Science portfolio project.")
