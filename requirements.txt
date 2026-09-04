@@ -3,6 +3,5 @@ streamlit
 torch==2.3.1+cpu
 torchvision==0.18.1+cpu
 pillow
-opencv-python-headless
 numpy
 pandas

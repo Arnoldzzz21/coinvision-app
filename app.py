@@ -4,7 +4,6 @@ import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
 import numpy as np
-import cv2
 import json
 import pandas as pd
 import re
@@ -13,6 +12,15 @@ import re
 # Page config
 # ---------------------------
 st.set_page_config(page_title="CoinVision", page_icon="🪙", layout="centered")
+
+# Streamlit Community Cloud's free tier gives this app a small, fixed memory
+# ceiling (it crashed with "This app has gone over its resource limits" in
+# production). PyTorch on CPU spins up one worker thread per available core
+# by default for intra-op parallelism, and each of those threads keeps its
+# own scratch buffers alive for the life of the process — on a
+# resource-constrained, effectively single-core container that costs memory
+# for no real speed benefit. Pinning it to 1 thread removes that overhead.
+torch.set_num_threads(1)
 
 # ---------------------------
 # Constants
@@ -135,36 +143,45 @@ class HierarchicalCoinNet(nn.Module):
 
 # ---------------------------
 # Grad-CAM — hooks on the shared backbone's last conv block
+#
+# generate() takes the class_logits already produced by a forward pass the
+# caller ran (see predict_coin below) instead of running the model again,
+# and gets its gradient with torch.autograd.grad() targeted directly at the
+# hooked activation instead of model.zero_grad() + score.backward(). The
+# original score.backward() had no way to stop early: autograd walks the
+# whole graph back to every leaf that requires grad, so it was recomputing
+# and storing a gradient for all ~11M backbone parameters (in
+# model.<param>.grad, kept around until the next call) on every single
+# uploaded coin just to read the gradient at one intermediate layer.
+# torch.autograd.grad(score, self.activations, ...) computes only the
+# gradient at that one tensor and stops the backward pass there — it never
+# touches the earlier conv layers or leaves anything in .grad.
 # ---------------------------
 class GradCAM:
     def __init__(self, model, target_layer):
         self.model = model
         self.activations = None
-        self.gradients = None
         target_layer.register_forward_hook(self._save_activation)
-        target_layer.register_full_backward_hook(self._save_gradient)
 
     def _save_activation(self, module, input, output):
-        self.activations = output.detach()
+        # Keep the graph attached here (no .detach()) — generate() needs it
+        # to compute torch.autograd.grad() against this exact tensor.
+        self.activations = output
 
-    def _save_gradient(self, module, grad_input, grad_output):
-        self.gradients = grad_output[0].detach()
-
-    def generate(self, input_tensor, class_idx):
-        self.model.zero_grad()
-        class_logits, _ = self.model(input_tensor)
+    def generate(self, class_logits, class_idx):
         score = class_logits[0, class_idx]
-        score.backward()
+        gradients = torch.autograd.grad(score, self.activations, retain_graph=False)[0]
+        activations = self.activations.detach()
 
-        weights = self.gradients[0].mean(dim=(1, 2))
-        cam = torch.zeros(self.activations.shape[2:])
+        weights = gradients[0].mean(dim=(1, 2))
+        cam = torch.zeros(activations.shape[2:])
         for i, w in enumerate(weights):
-            cam += w * self.activations[0, i]
+            cam += w * activations[0, i]
 
         cam = torch.relu(cam)
         cam = cam - cam.min()
         cam = cam / (cam.max() + 1e-8)
-        return cam.cpu().numpy()
+        return cam.detach().cpu().numpy()
 
 
 # ---------------------------
@@ -336,11 +353,55 @@ coin_value_table = build_coin_value_table(cat_to_name, exchange_rates)
 
 
 # ---------------------------
+# Grad-CAM heatmap rendering — plain PIL/numpy, no opencv.
+#
+# opencv-python(-headless) was only used here for a resize, a Jet colormap
+# lookup and a channel swap — all things PIL/numpy already do. Dropping it
+# removes a large C++ library (and its import-time memory footprint) from a
+# process that's already tight on Streamlit Community Cloud's free-tier
+# resource limit, permanently rather than only under load.
+# ---------------------------
+_JET_CONTROL_POINTS = np.array([
+    [0, 0, 0.50],   # dark blue
+    [0, 0, 1.00],   # blue
+    [0, 0.50, 1.00],  # cyan-blue
+    [0, 1.00, 1.00],  # cyan
+    [0.50, 1.00, 0.50],  # green
+    [1.00, 1.00, 0],  # yellow
+    [1.00, 0.50, 0],  # orange
+    [1.00, 0, 0],  # red
+    [0.50, 0, 0],   # dark red
+], dtype=np.float32)
+
+
+def _resize_grayscale_array(arr, size):
+    """Resize a 2D float array in [0, 1] to `size` = (width, height)."""
+    img = Image.fromarray((np.clip(arr, 0, 1) * 255).astype(np.uint8), mode="L")
+    img = img.resize(size, Image.BILINEAR)
+    return np.asarray(img, dtype=np.float32) / 255.0
+
+
+def _apply_jet_colormap(gray_uint8):
+    """Map an HxW uint8 array to an HxWx3 RGB array, approximating
+    matplotlib/OpenCV's "Jet" colormap via linear interpolation between a
+    handful of control points — enough fidelity for a visual explainability
+    overlay without pulling in opencv or matplotlib as a dependency."""
+    xs = np.linspace(0, 255, len(_JET_CONTROL_POINTS))
+    flat = gray_uint8.ravel().astype(np.float32)
+    channels = [np.interp(flat, xs, _JET_CONTROL_POINTS[:, c]) for c in range(3)]
+    rgb = np.stack(channels, axis=-1).reshape(gray_uint8.shape + (3,))
+    return (rgb * 255).astype(np.uint8)
+
+
+# ---------------------------
 # Prediction — flat argmax on class_head only (no group masking)
 # ---------------------------
 def predict_coin(image, top_k=3):
     input_tensor = transform(image).unsqueeze(0)
 
+    # Single forward pass, reused for both the classification result and
+    # the Grad-CAM gradient below — the model used to run twice per upload
+    # (once here, once again inside grad_cam.generate()) for no benefit.
     class_logits, _ = model(input_tensor)
     probs = torch.softmax(class_logits, dim=1)[0]
     top_probs, top_idxs = torch.topk(probs, top_k)
@@ -352,10 +413,9 @@ def predict_coin(image, top_k=3):
         results.append((class_id, full_name, prob.item()))
 
     pred_class = top_idxs[0].item()
-    cam = grad_cam.generate(input_tensor, pred_class)
-    cam_resized = cv2.resize(cam, image.size)
-    heatmap = cv2.applyColorMap(np.uint8(255 * cam_resized), cv2.COLORMAP_JET)
-    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+    cam = grad_cam.generate(class_logits, pred_class)
+    cam_resized = _resize_grayscale_array(cam, image.size)
+    heatmap = _apply_jet_colormap(np.uint8(255 * cam_resized))
     orig_resized = np.array(image.resize(image.size))
     overlay = (orig_resized * 0.5 + heatmap * 0.5).astype(np.uint8)
 
