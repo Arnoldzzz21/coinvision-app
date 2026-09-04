@@ -388,7 +388,7 @@ if uploaded_file is not None:
 
     st.subheader("Predictions")
 
-    top1_prob = results[0][1]
+    top1_prob = results[0][2]
 
     if top1_prob < LOW_CONFIDENCE_THRESHOLD:
         st.warning(
