@@ -25,13 +25,13 @@ torch.set_num_threads(1)
 # ---------------------------
 # Constants
 # ---------------------------
-NUM_CLASSES = 211
-NUM_GROUPS = 32
+NUM_CLASSES = 231
+NUM_GROUPS = 41
 IMG_SIZE = 300
 MODEL_PATH = "models/best_model_hierarchical.pth"
 
-# The model is a closed-set classifier: it always picks one of the 211
-# known classes (32 countries), even for a coin it was never trained on
+# The model is a closed-set classifier: it always picks one of the 231
+# known classes (36 countries), even for a coin it was never trained on
 # (e.g. an Argentine peso). When its own top-1 confidence is this low,
 # that's a sign the coin is probably out of its known scope rather than
 # a coin it actually recognizes with low certainty, so instead of
@@ -81,6 +81,28 @@ CURRENCY_ALIASES = {
     "Turkish Lira": "TRY",
     "US Dollar": "USD",
     "taiwan Dollar": "TWD",
+
+    # --- Fase 2 (2026-09-05): 5 monedas vigentes agregadas al dataset,
+    # todas ya presentes en exchange_rates.csv bajo estos codigos ISO. ---
+    "Salvadoran Colon": "SVC",
+    "Panamanian Balboa": "PAB",
+    "Moroccan Dirham": "MAD",
+    "Tunisian Dinar": "TND",
+    "Libyan Dinar": "LYD",
+}
+
+# Fase 1 (peseta, escudo, guilder, lira) agrego 4 monedas que dejaron de
+# existir antes de que exchange_rates.csv empezara a registrar tasas
+# (ninguna de las 4 aparece en el CSV bajo ningun codigo ISO, verificado).
+# En vez de una tasa de mercado, usamos la tasa fija e irrevocable que la
+# Union Europea fijo al introducir el euro para cada pais -- es una
+# constante legal, no cambia nunca, y es la conversion correcta para
+# monedas fisicas que ya no cotizan. Unidades de la moneda local por 1 EUR.
+FIXED_EUR_LEGACY_RATES = {
+    "Spanish Peseta": 166.386,
+    "Portuguese Escudo": 200.482,
+    "Dutch Guilder": 2.20371,
+    "Italian Lira": 1936.27,
 }
 
 # Many coin denominations in this dataset are written in a currency's named
@@ -112,6 +134,23 @@ SUBUNIT_FRACTIONS = {
     "euro cent": 0.01,
     "dime": 0.1,   # US dime = 1/10 dollar
     "jiao": 0.1,   # Chinese jiao = 1/10 yuan
+
+    # --- Fase 2 (2026-09-05) ---
+    "centesimo": 0.01, "centesimos": 0.01,   # Panama (also written centésimo)
+    "centésimo": 0.01, "centésimos": 0.01,
+    "centime": 0.01, "centimes": 0.01,       # Morocco
+    "millime": 0.001, "millimes": 0.001,     # Tunisia: 1 dinar = 1000 millimes,
+                                              # NOT 100 -- do not default this to 0.01.
+}
+
+# "Dirham" is ambiguous on its own: it is Morocco's MAJOR unit (1 Dirham =
+# 1 Dirham, fraction 1.0 like Dollar/Peso/Euro) but Libya's named SUBUNIT
+# (1 Libyan Dinar = 1000 Dirham, so a Libyan "50 Dirham" coin is worth
+# 0.05 Dinar). SUBUNIT_FRACTIONS keys only on the word, so it cannot hold
+# both meanings at once -- this table overrides it by currency, checked
+# first in subunit_fraction() below.
+SUBUNIT_FRACTIONS_BY_CURRENCY = {
+    "Libyan Dinar": {"dirham": 0.001, "dirhams": 0.001},
 }
 
 
@@ -283,28 +322,41 @@ def parse_denomination(name):
         return None
 
 
-def subunit_fraction(denomination_str):
+def subunit_fraction(denomination_str, currency_name=None):
     """Fraction of the currency's major unit that this denomination's word
     represents: 1.0 for a major-unit coin (Euro, Dollar, Peso, ...), or the
     looked-up fraction for a named subunit (Cent, Rappen, Hellers, Kurus,
-    ... — see SUBUNIT_FRACTIONS above)."""
+    ... — see SUBUNIT_FRACTIONS above). currency_name resolves words that
+    mean different things in different currencies (see
+    SUBUNIT_FRACTIONS_BY_CURRENCY, e.g. "Dirham")."""
     name = denomination_str.strip()
     # Same "strip the leading number" shape as parse_denomination, but keep
     # the trailing word(s) instead of the number.
     match = re.match(r"^[\d.,/\s]+(.*)$", name)
     unit_word = (match.group(1) if match else name).strip().lower()
+    override_table = SUBUNIT_FRACTIONS_BY_CURRENCY.get(currency_name)
+    if override_table and unit_word in override_table:
+        return override_table[unit_word]
     return SUBUNIT_FRACTIONS.get(unit_word, 1.0)
 
 
 def convert_to_usd(denomination_str, currency_name, rates):
     value = parse_denomination(denomination_str)
-    iso_code = CURRENCY_ALIASES.get(currency_name)
-    if value is None or iso_code is None or iso_code not in rates or "USD" not in rates:
+    if value is None or "USD" not in rates:
         return None
-    value_in_major_unit = value * subunit_fraction(denomination_str)
-    value_in_eur = value_in_major_unit / rates[iso_code]
-    value_in_usd = value_in_eur * rates["USD"]
-    return value_in_usd
+    value_in_major_unit = value * subunit_fraction(denomination_str, currency_name)
+
+    fixed_eur_rate = FIXED_EUR_LEGACY_RATES.get(currency_name)
+    if fixed_eur_rate is not None:
+        # Discontinued pre-euro currency: fixed legal rate, not a market one.
+        value_in_eur = value_in_major_unit / fixed_eur_rate
+    else:
+        iso_code = CURRENCY_ALIASES.get(currency_name)
+        if iso_code is None or iso_code not in rates:
+            return None
+        value_in_eur = value_in_major_unit / rates[iso_code]
+
+    return value_in_eur * rates["USD"]
 
 
 def split_coin_name(full_name):
@@ -484,5 +536,5 @@ else:
     st.info("Upload an image of a coin to get started.")
 
 st.divider()
-st.caption("Model: EfficientNet-B3 (multi-task, class_head + auxiliary group_head) · Test accuracy 68.13% across 211 classes · Data Science portfolio project."
+st.caption("Model: EfficientNet-B3 (multi-task, class_head + auxiliary group_head) · Test accuracy 66.25% across 231 classes · Data Science portfolio project."
 )
