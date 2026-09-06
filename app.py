@@ -479,7 +479,7 @@ def predict_coin(image, top_k=3):
 # ---------------------------
 st.title("🪙 CoinVision")
 st.caption(
-    "Identifies coins from 211 different classes using an EfficientNet-B3 "
+    "Identifies coins from 231 different classes using an EfficientNet-B3 "
     "model, with explainability via Grad-CAM."
 )
 
