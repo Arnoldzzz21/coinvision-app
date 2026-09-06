@@ -370,7 +370,7 @@ def split_coin_name(full_name):
 
 
 # ---------------------------
-# Coin value table — USD value of every one of the 211 known classes,
+# Coin value table — USD value of every one of the 231 known classes,
 # precomputed once so we can find coins of similar purchasing power to a
 # given prediction (used instead of showing the model's low-confidence
 # runner-up guesses, which were confusing: e.g. a 1 Euro prediction next to
