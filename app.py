@@ -505,8 +505,8 @@ if uploaded_file is not None:
     if top1_prob < LOW_CONFIDENCE_THRESHOLD:
         st.warning(
             "⚠️ Coin not recognized with confidence. This may not be one of "
-            "the coins this model was trained on (it recognizes 211 "
-            "denominations from 32 countries). No country or USD value is "
+            "the coins this model was trained on (it recognizes 231 "
+            "denominations from 36 countries). No country or USD value is "
             "shown, since it would most likely be wrong."
         )
         with st.expander("Show closest matches anyway (low confidence)"):
