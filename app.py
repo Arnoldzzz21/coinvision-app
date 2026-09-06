@@ -2,7 +2,7 @@ import streamlit as st
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
-from PIL import Image
+from PIL import Image, ImageOps
 import numpy as np
 import json
 import pandas as pd
@@ -486,7 +486,9 @@ st.caption(
 uploaded_file = st.file_uploader("Upload a photo of a coin", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file).convert("RGB")
+    image = Image.open(uploaded_file)
+    image = ImageOps.exif_transpose(image)  # respeta la rotacion EXIF de fotos reales (celular/camara)
+    image = image.convert("RGB")
 
     col1, col2 = st.columns(2)
     with col1:
