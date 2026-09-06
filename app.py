@@ -536,5 +536,5 @@ else:
     st.info("Upload an image of a coin to get started.")
 
 st.divider()
-st.caption("Model: EfficientNet-B3 (multi-task, class_head + auxiliary group_head) · Test accuracy 66.25% across 231 classes · Data Science portfolio project."
+st.caption("Model: EfficientNet-B3 (multi-task, class_head + auxiliary group_head) · Test accuracy 66.78% across 231 classes · Data Science portfolio project."
 )
