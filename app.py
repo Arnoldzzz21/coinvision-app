@@ -113,7 +113,7 @@ FIXED_EUR_LEGACY_RATES = {
 # "1 euro Cent" priced the same as "1 Euro"). Maps the subunit word
 # (lowercase, as it appears right after the number in cat_to_name.json,
 # singular/plural forms included) to its fraction of one major unit. Built
-# by checking every denomination word actually present in the 211 classes;
+# by checking every denomination word actually present in the 231 classes;
 # anything not listed here (Euro, Dollar, Peso, Krona, Forint, Yen, Won,
 # Rupiah, ...) is a major unit and keeps a fraction of 1.0.
 SUBUNIT_FRACTIONS = {
