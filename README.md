@@ -15,7 +15,7 @@ Coin classifier that identifies the country and denomination of a coin from a ph
 
 The classifier is a HierarchicalCoinNet built on top of an EfficientNet-B3 backbone (transfer learning + fine-tuning), pre-trained on ImageNet. It uses two output heads trained jointly: a class_head that predicts the exact coin class (231 classes) and an auxiliary group_head that predicts a coarser currency group (41 groups). At inference time only the class_head is used (flat argmax) -- the auxiliary head helped regularize training but plateaued at a lower validation accuracy, so hard masking by group was not used in the final model. The final model reaches 66.25% test accuracy across the 231 classes. Grad-CAM hooks are attached to the last convolutional block of the backbone to generate a heatmap showing which region of the image most influenced the prediction.
 
-See [`training/`](training/) for the full training pipeline: dataset build (sourced entirely from Wikimedia Commons), EDA, base training, fine-tuning, Grad-CAM, and a documented hierarchical two-head experiment that wasn't used in production.
+See [`Codevision.ipynb`](Codevision.ipynb) for the full training pipeline: dataset build (sourced entirely from Wikimedia Commons), EDA, base training, fine-tuning, Grad-CAM, and a documented hierarchical two-head experiment that wasn't used in production. Supporting scripts and setup docs for reproducing it are in [`training/`](training/).
 
 ## Dataset
 
@@ -36,7 +36,8 @@ coinvision-app/
 ├── label_mapping.json       # class_to_idx mapping
 ├── exchange_rates.csv       # daily exchange rates for USD conversion
 ├── requirements.txt
-└── training/                # full training pipeline (notebook, dataset builder, docs)
+├── Codevision.ipynb         # full training pipeline notebook (EDA -> training -> fine-tuning -> Grad-CAM)
+└── training/                # dataset builder, shared modules, training docs (supports the notebook above)
 ```
 
 ## Running locally
