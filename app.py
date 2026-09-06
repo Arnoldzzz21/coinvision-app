@@ -37,7 +37,7 @@ MODEL_PATH = "models/best_model_hierarchical.pth"
 # a coin it actually recognizes with low certainty, so instead of
 # asserting a likely-wrong country/currency we show a clear "not
 # recognized" message. Tune this threshold based on real-world testing.
-LOW_CONFIDENCE_THRESHOLD = 0.35
+LOW_CONFIDENCE_THRESHOLD = 0.30
 CAT_TO_NAME_PATH = "cat_to_name.json"
 LABEL_MAPPING_PATH = "label_mapping.json"
 EXCHANGE_RATES_PATH = "exchange_rates.csv"
