@@ -1,0 +1,19 @@
+# Dependencies for Codevision.ipynb (training/fine-tuning pipeline).
+# This is separate from the app's requirements.txt (CPU-only, inference-only).
+# Training was run locally on an NVIDIA GPU; swap the torch/torchvision index
+# below for the CUDA build that matches your own GPU/driver, or drop the
+# --extra-index-url line entirely to install the CPU build (training will
+# just be much slower).
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.3.1
+torchvision==0.18.1
+pandas
+numpy
+pillow
+opencv-python
+matplotlib
+seaborn
+scikit-learn
+tqdm
+requests
+jupyter

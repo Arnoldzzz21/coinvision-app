@@ -7,17 +7,19 @@ Coin classifier that identifies the country and denomination of a coin from a ph
 ## Features
 
 - Upload a coin photo (JPG or PNG) and get an instant prediction.
-- Top-3 predicted classes with confidence scores, out of 211 coin classes from 32 currencies.
+- Top-3 predicted classes with confidence scores, out of 231 coin classes from 36 currencies.
 - Grad-CAM heatmap overlay showing which part of the image the model focused on.
 - Automatic conversion of the predicted denomination into an estimated USD value using daily exchange rates.
 
 ## Model
 
-The classifier is a HierarchicalCoinNet built on top of an EfficientNet-B3 backbone (transfer learning + fine-tuning), pre-trained on ImageNet. It uses two output heads trained jointly: a class_head that predicts the exact coin class (211 classes) and an auxiliary group_head that predicts a coarser currency group (32 groups). At inference time only the class_head is used (flat argmax) -- the auxiliary head helped regularize training but plateaued at a lower validation accuracy, so hard masking by group was not used in the final model. The final model reaches 68.13% test accuracy across the 211 classes. Grad-CAM hooks are attached to the last convolutional block of the backbone to generate a heatmap showing which region of the image most influenced the prediction.
+The classifier is a HierarchicalCoinNet built on top of an EfficientNet-B3 backbone (transfer learning + fine-tuning), pre-trained on ImageNet. It uses two output heads trained jointly: a class_head that predicts the exact coin class (231 classes) and an auxiliary group_head that predicts a coarser currency group (41 groups). At inference time only the class_head is used (flat argmax) -- the auxiliary head helped regularize training but plateaued at a lower validation accuracy, so hard masking by group was not used in the final model. The final model reaches 66.25% test accuracy across the 231 classes. Grad-CAM hooks are attached to the last convolutional block of the backbone to generate a heatmap showing which region of the image most influenced the prediction.
+
+See [`training/`](training/) for the full training pipeline: dataset build (sourced entirely from Wikimedia Commons), EDA, base training, fine-tuning, Grad-CAM, and a documented hierarchical two-head experiment that wasn't used in production.
 
 ## Dataset
 
-Each coin class corresponds to a denomination, currency, and country (for example "10 Kurus, Turkish Lira, Turkey"), stored in cat_to_name.json. label_mapping.json holds the class-to-index mapping used to align model outputs with class names. exchange_rates.csv is a daily time series of exchange rates (units of currency per 1 EUR) for the 32 currencies represented in the dataset, used to convert the predicted denomination into an estimated USD value.
+Each coin class corresponds to a denomination, currency, and country (for example "10 Kurus, Turkish Lira, Turkey"), stored in cat_to_name.json. label_mapping.json holds the class-to-index mapping used to align model outputs with class names. exchange_rates.csv is a daily time series of exchange rates (units of currency per 1 EUR) for the 36 currencies represented in the dataset, used to convert the predicted denomination into an estimated USD value.
 
 ## Tech stack
 
@@ -33,7 +35,8 @@ coinvision-app/
 ├── cat_to_name.json         # class id -> "denomination, currency, country"
 ├── label_mapping.json       # class_to_idx mapping
 ├── exchange_rates.csv       # daily exchange rates for USD conversion
-└── requirements.txt
+├── requirements.txt
+└── training/                # full training pipeline (notebook, dataset builder, docs)
 ```
 
 ## Running locally
