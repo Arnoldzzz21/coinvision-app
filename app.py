@@ -482,6 +482,7 @@ st.caption(
     "Identifies coins from 231 different classes using an EfficientNet-B3 "
     "model, with explainability via Grad-CAM."
 )
+st.caption("Developed by **Arnoldo Cuéllar** · [GitHub](https://github.com/Arnoldzzz21)")
 
 uploaded_file = st.file_uploader("Upload a photo of a coin", type=["jpg", "jpeg", "png"])
 
