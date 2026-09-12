@@ -53,6 +53,8 @@ streamlit run app.py
 
 Deployed on Streamlit Community Cloud, running on Python 3.11 with CPU-only PyTorch and Torchvision wheels (see requirements.txt).
 
-## Author
+## Live app
 
-Built by Arnoldo Cuellar as part of a personal Data Science portfolio.
+View it here: https://coinvision-arnoldo.streamlit.app/
+
+
